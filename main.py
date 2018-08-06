@@ -13,11 +13,15 @@
 # limitations under the License.
 
 # [START app]
+
+
 import logging
 import os
 
 from flask import Flask, request
+from werkzeug import parse_options_header
 from google.cloud import storage
+from google.appengine.ext import blobstore
 from PIL import Image
 
 # [start config]
@@ -32,12 +36,13 @@ CLOUD_STORAGE_BUCKET = os.environ['CLOUD_STORAGE_BUCKET']
 # [START form]
 @app.route('/')
 def index():
+    upload_url = blobstore.create_upload_url('/upload', gs_bucket_name = CLOUD_STORAGE_BUCKET)
     return """
-<form method="POST" action="/upload" enctype="multipart/form-data">
+<form method="POST" action="{{0}}" enctype="multipart/form-data">
     <input type="file" name="images" id="myImages" multiple="multiple">
     <input type="submit"">
 </form>
-"""
+""".format(upload_url)
 # [END form]
 
 
@@ -46,41 +51,51 @@ def index():
 def upload():
     """Process the uploaded files and upload it to Google Cloud Storage."""
 
-    uploaded_images = request.files.getlist('images')
+    if request.method == 'POST':
+        uploaded_images = request.files.getlist('images')
+        if not uploaded_images:
+            return 'No file uploaded.', 400
 
-    if not uploaded_images:
-        return 'No file uploaded.', 400
+        blob_keys = []
+        for each_image in uploaded_images:
+            header = each_image.headers['Content-Type']
+            print(header)
+            parsed_header = parse_options_header(header)
+            print(parsed_header)
+            blob_key = parsed_header[1]['blob-key']
+            blob_keys.append(blob_key)
+            
+    #     #Create a Cloud Storage client.
+    #     gcs = storage.Client.from_service_account_json('storageConfig.json')
 
-    # Create a Cloud Storage client.
-    gcs = storage.Client.from_service_account_json('storageConfig.json')
+    #     # Get the bucket that the file will be uploaded to.
+    #     bucket = gcs.get_bucket(CLOUD_STORAGE_BUCKET)
 
-    # Get the bucket that the file will be uploaded to.
-    bucket = gcs.get_bucket(CLOUD_STORAGE_BUCKET)
+    #     public_urls = []
 
-    public_urls = []
+    #     for each_image in uploaded_images:
+    #         print('Resizing: {}'.format(each_image.filename))
+    #         image_to_resize = Image.open(each_image)
+    #         print(image_to_resize.size)
+            
+    #         resized_image = image_to_resize.resize((int(image_to_resize.size[0]/2), int(image_to_resize.size[1]/2)))
+    #         print(resized_image.size)
+    #         resized_image.save('temp.jpg')
 
-    for each_image in uploaded_images:
-        print('Resizing: {}'.format(each_image.filename))
-        image_to_resize = Image.open(each_image)
-        print(image_to_resize.size)
-        
-        resized_image = image_to_resize.resize((int(image_to_resize.size[0]/2), int(image_to_resize.size[1]/2)))
-        print(resized_image.size)
-        resized_image.save('temp.jpg')
+    #         # Create a new blob and upload the file's content.
+    #         blob = bucket.blob(each_image.filename)
 
-        # Create a new blob and upload the file's content.
-        blob = bucket.blob(each_image.filename)
+    #         blob.upload_from_filename(
+    #             'temp.jpg',
+    #             content_type=each_image.content_type
+    #         )
+            
+    #         blob.make_public()
 
-        blob.upload_from_filename(
-            'temp.jpg',
-            content_type=each_image.content_type
-        )
-        
-        blob.make_public()
+    #         public_urls.append(blob.public_url)
 
-        public_urls.append(blob.public_url)
-
-    return """<br>""".join(str(url) for url in public_urls)
+    # return """<br>""".join(str(url) for url in public_urls)
+    return """<br>""".join(str(key) for key in blob_keys)
 # [END upload]
 
 @app.errorhandler(500)
